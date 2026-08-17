@@ -1,0 +1,56 @@
+# Operating-system metadata
+.DS_Store
+.AppleDouble
+Thumbs.db
+Desktop.ini
+
+# IDE and editor-local state
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# Local AI-assistant settings
+.claude/settings.local.json
+
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+.envrc
+
+# Machine-specific configuration overrides
+/config/*.local.yaml
+/config/*.local.yml
+/dev/docker-compose.override.yaml
+/dev/docker-compose.override.yml
+
+# Go build outputs
+/bin/
+/build/
+/dist/
+/server
+/worker
+*.exe
+*.test
+
+# Tests, coverage, benchmarks, and profiles
+/coverage/
+coverage.*
+*.coverprofile
+*.prof
+*.pprof
+
+# Runtime and temporary data
+/.cache/
+/.temp/
+/data/
+/tmp/
+*.log
+*.pid
+*.tmp
+*.bak
+*.orig

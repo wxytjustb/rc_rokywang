@@ -1,0 +1,550 @@
+{
+    "schemes": [
+        "http",
+        "https"
+    ],
+    "swagger": "2.0",
+    "info": {
+        "description": "Reliably accepts notifications for asynchronous delivery and exposes their delivery status.",
+        "title": "Notification Delivery API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/",
+    "paths": {
+        "/healthz": {
+            "get": {
+                "description": "Returns HTTP 200 when the API process is running.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Liveness probe",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Error message language: zh-CN or en-US",
+                        "name": "Accept-Language",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.emptyAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/readyz": {
+            "get": {
+                "description": "Checks the dependencies required to serve API traffic.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Readiness probe",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Error message language: zh-CN or en-US",
+                        "name": "Accept-Language",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.readinessAPIResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/api.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/messages": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Validates and durably accepts one notification for asynchronous delivery. Reusing source_system and source_request_id with identical content returns the original event as a duplicate.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "messages"
+                ],
+                "summary": "Submit a notification",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Error message language: zh-CN or en-US",
+                        "name": "Accept-Language",
+                        "in": "header"
+                    },
+                    {
+                        "description": "Notification to deliver; payload example follows Lark's documented custom-bot text schema",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.createLarkBotMessageExample"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/api.createMessageAPIResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.errorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.errorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/api.errorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/api.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/messages/{source_request_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the delivery state for the requested source system and source request ID.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "messages"
+                ],
+                "summary": "Get notification status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Error message language: zh-CN or en-US",
+                        "name": "Accept-Language",
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Source request ID",
+                        "name": "source_request_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Source system",
+                        "name": "source_system",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.messageStatusAPIResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.errorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/api.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/providers": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every runtime-enabled provider_code and provider_action with a Chinese functional description, suitable for agent or MCP capability discovery.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "providers"
+                ],
+                "summary": "List supported provider capabilities",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Error message language: zh-CN or en-US",
+                        "name": "Accept-Language",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.providerCapabilitiesAPIResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/api.errorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "api.createLarkBotMessageExample": {
+            "type": "object",
+            "properties": {
+                "payload": {
+                    "$ref": "#/definitions/api.larkBotMessageExample"
+                },
+                "provider_action": {
+                    "type": "string",
+                    "example": "send"
+                },
+                "provider_code": {
+                    "type": "string",
+                    "example": "lark-bot"
+                },
+                "source_request_id": {
+                    "type": "string",
+                    "example": "lark-bot-send-request-id-uuid4"
+                },
+                "source_system": {
+                    "type": "string",
+                    "example": "example-system"
+                }
+            }
+        },
+        "api.createMessageAPIResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/api.createMessageResponse"
+                },
+                "error_message": {
+                    "type": "string",
+                    "example": ""
+                },
+                "status": {
+                    "type": "integer",
+                    "example": 0
+                }
+            }
+        },
+        "api.createMessageResponse": {
+            "type": "object",
+            "properties": {
+                "accepted_at": {
+                    "type": "string"
+                },
+                "duplicate": {
+                    "type": "boolean"
+                },
+                "event_id": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "source_request_id": {
+                    "type": "string",
+                    "example": "lark-bot-send-request-id-uuid4"
+                },
+                "source_system": {
+                    "type": "string",
+                    "example": "example-system"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "PENDING",
+                        "PROCESSING",
+                        "SUCCEEDED",
+                        "FAILED",
+                        "UNKNOWN"
+                    ],
+                    "example": "PENDING"
+                }
+            }
+        },
+        "api.emptyAPIResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/api.emptyData"
+                },
+                "error_message": {
+                    "type": "string",
+                    "example": ""
+                },
+                "status": {
+                    "type": "integer",
+                    "example": 0
+                }
+            }
+        },
+        "api.emptyData": {
+            "type": "object"
+        },
+        "api.errorResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/api.emptyData"
+                },
+                "error_message": {
+                    "type": "string",
+                    "example": "The request body is invalid."
+                },
+                "status": {
+                    "type": "integer",
+                    "example": 1001
+                }
+            }
+        },
+        "api.larkBotMessageExample": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "$ref": "#/definitions/api.larkBotTextContentExample"
+                },
+                "msg_type": {
+                    "type": "string",
+                    "example": "text"
+                }
+            }
+        },
+        "api.larkBotTextContentExample": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "example": "Notification Delivery test"
+                }
+            }
+        },
+        "api.messageStatusAPIResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/api.messageStatusResponse"
+                },
+                "error_message": {
+                    "type": "string",
+                    "example": ""
+                },
+                "status": {
+                    "type": "integer",
+                    "example": 0
+                }
+            }
+        },
+        "api.messageStatusResponse": {
+            "type": "object",
+            "properties": {
+                "attempt_count": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "event_id": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "last_result": {
+                    "type": "object"
+                },
+                "provider_action": {
+                    "type": "string",
+                    "example": "send"
+                },
+                "provider_code": {
+                    "type": "string",
+                    "example": "lark-bot"
+                },
+                "provider_response": {
+                    "type": "object"
+                },
+                "source_request_id": {
+                    "type": "string",
+                    "example": "lark-bot-send-request-id-uuid4"
+                },
+                "source_system": {
+                    "type": "string",
+                    "example": "example-system"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "PENDING",
+                        "PROCESSING",
+                        "SUCCEEDED",
+                        "FAILED",
+                        "UNKNOWN"
+                    ],
+                    "example": "SUCCEEDED"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.providerActionCapability": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "example": "向机器人所在群会话发送文本、富文本、图片、群名片或消息卡片；非幂等"
+                },
+                "provider_action": {
+                    "type": "string",
+                    "example": "send"
+                }
+            }
+        },
+        "api.providerCapabilitiesAPIResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/api.providerCapabilitiesData"
+                },
+                "error_message": {
+                    "type": "string",
+                    "example": ""
+                },
+                "status": {
+                    "type": "integer",
+                    "example": 0
+                }
+            }
+        },
+        "api.providerCapabilitiesData": {
+            "type": "object",
+            "properties": {
+                "providers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.providerCapability"
+                    }
+                }
+            }
+        },
+        "api.providerCapability": {
+            "type": "object",
+            "properties": {
+                "actions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.providerActionCapability"
+                    }
+                },
+                "provider_code": {
+                    "type": "string",
+                    "example": "lark-bot"
+                }
+            }
+        },
+        "api.readinessAPIResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/api.readinessData"
+                },
+                "error_message": {
+                    "type": "string",
+                    "example": ""
+                },
+                "status": {
+                    "type": "integer",
+                    "example": 0
+                }
+            }
+        },
+        "api.readinessData": {
+            "type": "object",
+            "properties": {
+                "ready": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "BearerAuth": {
+            "description": "Swagger UI accepts the raw token and adds the Bearer prefix automatically. Direct HTTP clients must send Authorization: Bearer {token}.",
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}

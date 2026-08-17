@@ -1,0 +1,4 @@
+interface:
+  display_name: "对话决策总结"
+  short_description: "提炼对话中的 AI 方案、用户决策、设计取舍与后续演进路径"
+  default_prompt: "Use $summarize-ai-decisions to summarize this conversation and synchronize the decisions into the project tradeoffs document."

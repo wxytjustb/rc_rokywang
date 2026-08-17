@@ -1,0 +1,32 @@
+# Provider Adapter Registry config (DESIGN.md §5). Provider-specific public
+# settings and credential references live here — actual secrets resolve at startup
+# via internal/provider.CredentialResolver (see
+# internal/provider/credential.go for the local-dev env-var based
+# resolver). Each top-level key below (e.g. "lark-bot") is a provider_code
+# and must exactly match the string a registered Adapter returns from
+# ProviderCode() (see internal/provider/adapters/register.go) — there is
+# no separate "adapter:" field. Each adapter owns a strict Config decoder.
+# Fields accepted by one adapter are not automatically accepted by
+# another, and protocol rules are validated at startup.
+#
+# Ordinary retry limits and timing are configured on the selected MQ. An
+# adapter may additionally expose an optional, vendor-specific circuit_breaker
+# block; its availability signal affects only that breaker, not retry policy.
+
+providers:
+  # Lark (飞书) custom bot webhook. webhook_url is the bot's complete,
+  # per-bot URL (https://open.larksuite.com/open-apis/bot/v2/hook/<id>).
+  # If signature verification is enabled on the bot, set signing_secret_ref;
+  # EnvCredentialResolver then reads the referenced secret from the matching
+  # NOTIF_CRED_* environment variable.
+  lark-bot:
+    signing_secret_ref: "${LARK_BOT_SIGNING_SECRET_REF:-}"
+    actions:
+      send:
+        webhook_url: "${LARK_BOT_WEBHOOK_URL:-https://open.larksuite.com/open-apis/bot/v2/hook/replace-with-your-webhook-id}"
+        timeout_ms: 5000
+        requests_per_second: 5
+        max_concurrency: 5
+        circuit_breaker:
+          failure_threshold: 5
+          open_duration: 30s

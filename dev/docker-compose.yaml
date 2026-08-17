@@ -1,0 +1,138 @@
+name: rc-rokywang-dev
+
+services:
+  server:
+    image: rc-rokywang:dev
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["/app/server", "--config", "/app/config/server.yaml"]
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-test}:${POSTGRES_PASSWORD:-test}@postgres:5432/${POSTGRES_DB:-test}?sslmode=disable"
+      DB_AUTO_CREATE: "true"
+      RABBITMQ_URL: "amqp://test:test@rabbitmq:5672/"
+      SWAGGER_ENABLED: "true"
+      LARK_BOT_WEBHOOK_URL: "${LARK_BOT_WEBHOOK_URL:-}"
+      LARK_BOT_SIGNING_SECRET_REF: "${LARK_BOT_SIGNING_SECRET_REF:-}"
+      NOTIF_CRED_NOTIFICATION_LARK_BOT_SIGNING_SECRET: "${NOTIF_CRED_NOTIFICATION_LARK_BOT_SIGNING_SECRET:-}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8877:8877"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8877/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  worker:
+    image: rc-rokywang:dev
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["/app/worker", "--config", "/app/config/worker.yaml"]
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-test}:${POSTGRES_PASSWORD:-test}@postgres:5432/${POSTGRES_DB:-test}?sslmode=disable"
+      DB_AUTO_CREATE: "true"
+      RABBITMQ_URL: "amqp://test:test@rabbitmq:5672/"
+      LARK_BOT_WEBHOOK_URL: "${LARK_BOT_WEBHOOK_URL:-}"
+      LARK_BOT_SIGNING_SECRET_REF: "${LARK_BOT_SIGNING_SECRET_REF:-}"
+      NOTIF_CRED_NOTIFICATION_LARK_BOT_SIGNING_SECRET: "${NOTIF_CRED_NOTIFICATION_LARK_BOT_SIGNING_SECRET:-}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-test}"
+      POSTGRES_USER: "${POSTGRES_USER:-test}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-test}"
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # Check the PostgreSQL server itself. The application may still need to
+      # create POSTGRES_DB when an existing data volume is reused.
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:5.5.0-standalone
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${ADMINER_PORT:-8081}:8080"
+    restart: unless-stopped
+
+  nsqlookupd:
+    image: nsqio/nsq:v1.3.0
+    command: /nsqlookupd
+    ports:
+      - "127.0.0.1:4160:4160"
+      - "127.0.0.1:4161:4161"
+    restart: unless-stopped
+
+  nsqd:
+    image: nsqio/nsq:v1.3.0
+    command:
+      - /nsqd
+      - --lookupd-tcp-address=nsqlookupd:4160
+      - --broadcast-address=nsqd
+      - --data-path=/data
+    depends_on:
+      - nsqlookupd
+    ports:
+      - "127.0.0.1:4150:4150"
+      - "127.0.0.1:4151:4151"
+    volumes:
+      - nsq_data:/data
+    restart: unless-stopped
+
+  nsqadmin:
+    image: nsqio/nsq:v1.3.0
+    command:
+      - /nsqadmin
+      - --lookupd-http-address=nsqlookupd:4161
+    depends_on:
+      - nsqlookupd
+    ports:
+      - "127.0.0.1:4171:4171"
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: test
+      RABBITMQ_DEFAULT_PASS: test
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  nsq_data:
+  rabbitmq_data:

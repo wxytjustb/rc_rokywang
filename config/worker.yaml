@@ -1,0 +1,63 @@
+# Worker config for local development against dev/docker-compose.yaml.
+
+database:
+  driver: "${DB_DRIVER:-postgres}"
+  dsn: "${DATABASE_URL:-postgres://test:test@127.0.0.1:5432/test?sslmode=disable}"
+  auto_create: ${DB_AUTO_CREATE:-true}
+  max_conns: 10
+  min_conns: 2
+
+mq:
+  # The standalone worker supports only external brokers. Use cmd/server for
+  # the in-process "memory" driver.
+  driver: "${MQ_DRIVER:-rabbitmq}"
+  nsq:
+    nsqd_addr: "nsqd:4150"
+    lookupd_addrs:
+      - "nsqlookupd:4161"
+    topic: "notification-delivery"
+    channel: "delivery-worker"
+    default_requeue_delay: 5s
+    max_requeue_delay: 1m
+    max_attempts: 5
+  rabbitmq:
+    url: "${RABBITMQ_URL:-amqp://test:test@127.0.0.1:5672/}"
+    exchange: ""
+    exchange_type: "direct"
+    queue: "notification-delivery"
+    routing_key: ""
+    durable: true
+    prefetch_count: 20
+    reconnect_delay: 5s
+    default_requeue_delay: 5s
+    max_requeue_delay: 1m
+    max_attempts: 5
+
+providers_file: "config/providers.yaml"
+
+# Matches the atomic-claim lease in DESIGN.md §6.1/§9. renew_interval is
+# currently unused by a single short-lived HTTP call (the processor renews
+# once, to the full duration, right before the call) — it's reserved for a
+# future adapter that needs to stream progress on a long-running call.
+lease:
+  duration: 60s
+  renew_interval: 20s
+
+# How many event_ids this single worker process handles at once. Scale
+# throughput either by raising this or by running more worker replicas
+# (or both) — see DESIGN.md §10.
+concurrency: 10
+
+compensator:
+  publish_scan_interval: 15s
+  publish_batch_size: 500
+  lease_scan_interval: 15s
+  lease_scan_batch_size: 200
+
+http_client:
+  max_response_bytes: 65536   # 64 KiB
+  allowed_response_headers:
+    - "Content-Type"
+    - "X-Request-Id"
+
+auto_migrate: true

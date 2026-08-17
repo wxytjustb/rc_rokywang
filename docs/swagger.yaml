@@ -1,0 +1,377 @@
+basePath: /
+definitions:
+  api.createLarkBotMessageExample:
+    properties:
+      payload:
+        $ref: '#/definitions/api.larkBotMessageExample'
+      provider_action:
+        example: send
+        type: string
+      provider_code:
+        example: lark-bot
+        type: string
+      source_request_id:
+        example: lark-bot-send-request-id-uuid4
+        type: string
+      source_system:
+        example: example-system
+        type: string
+    type: object
+  api.createMessageAPIResponse:
+    properties:
+      data:
+        $ref: '#/definitions/api.createMessageResponse'
+      error_message:
+        example: ""
+        type: string
+      status:
+        example: 0
+        type: integer
+    type: object
+  api.createMessageResponse:
+    properties:
+      accepted_at:
+        type: string
+      duplicate:
+        type: boolean
+      event_id:
+        format: uuid
+        type: string
+      source_request_id:
+        example: lark-bot-send-request-id-uuid4
+        type: string
+      source_system:
+        example: example-system
+        type: string
+      status:
+        enum:
+        - PENDING
+        - PROCESSING
+        - SUCCEEDED
+        - FAILED
+        - UNKNOWN
+        example: PENDING
+        type: string
+    type: object
+  api.emptyAPIResponse:
+    properties:
+      data:
+        $ref: '#/definitions/api.emptyData'
+      error_message:
+        example: ""
+        type: string
+      status:
+        example: 0
+        type: integer
+    type: object
+  api.emptyData:
+    type: object
+  api.errorResponse:
+    properties:
+      data:
+        $ref: '#/definitions/api.emptyData'
+      error_message:
+        example: The request body is invalid.
+        type: string
+      status:
+        example: 1001
+        type: integer
+    type: object
+  api.larkBotMessageExample:
+    properties:
+      content:
+        $ref: '#/definitions/api.larkBotTextContentExample'
+      msg_type:
+        example: text
+        type: string
+    type: object
+  api.larkBotTextContentExample:
+    properties:
+      text:
+        example: Notification Delivery test
+        type: string
+    type: object
+  api.messageStatusAPIResponse:
+    properties:
+      data:
+        $ref: '#/definitions/api.messageStatusResponse'
+      error_message:
+        example: ""
+        type: string
+      status:
+        example: 0
+        type: integer
+    type: object
+  api.messageStatusResponse:
+    properties:
+      attempt_count:
+        type: integer
+      created_at:
+        type: string
+      event_id:
+        format: uuid
+        type: string
+      last_result:
+        type: object
+      provider_action:
+        example: send
+        type: string
+      provider_code:
+        example: lark-bot
+        type: string
+      provider_response:
+        type: object
+      source_request_id:
+        example: lark-bot-send-request-id-uuid4
+        type: string
+      source_system:
+        example: example-system
+        type: string
+      status:
+        enum:
+        - PENDING
+        - PROCESSING
+        - SUCCEEDED
+        - FAILED
+        - UNKNOWN
+        example: SUCCEEDED
+        type: string
+      updated_at:
+        type: string
+    type: object
+  api.providerActionCapability:
+    properties:
+      description:
+        example: 向机器人所在群会话发送文本、富文本、图片、群名片或消息卡片；非幂等
+        type: string
+      provider_action:
+        example: send
+        type: string
+    type: object
+  api.providerCapabilitiesAPIResponse:
+    properties:
+      data:
+        $ref: '#/definitions/api.providerCapabilitiesData'
+      error_message:
+        example: ""
+        type: string
+      status:
+        example: 0
+        type: integer
+    type: object
+  api.providerCapabilitiesData:
+    properties:
+      providers:
+        items:
+          $ref: '#/definitions/api.providerCapability'
+        type: array
+    type: object
+  api.providerCapability:
+    properties:
+      actions:
+        items:
+          $ref: '#/definitions/api.providerActionCapability'
+        type: array
+      provider_code:
+        example: lark-bot
+        type: string
+    type: object
+  api.readinessAPIResponse:
+    properties:
+      data:
+        $ref: '#/definitions/api.readinessData'
+      error_message:
+        example: ""
+        type: string
+      status:
+        example: 0
+        type: integer
+    type: object
+  api.readinessData:
+    properties:
+      ready:
+        example: true
+        type: boolean
+    type: object
+info:
+  contact: {}
+  description: Reliably accepts notifications for asynchronous delivery and exposes
+    their delivery status.
+  title: Notification Delivery API
+  version: "1.0"
+paths:
+  /healthz:
+    get:
+      description: Returns HTTP 200 when the API process is running.
+      parameters:
+      - description: 'Error message language: zh-CN or en-US'
+        in: header
+        name: Accept-Language
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.emptyAPIResponse'
+      summary: Liveness probe
+      tags:
+      - system
+  /readyz:
+    get:
+      description: Checks the dependencies required to serve API traffic.
+      parameters:
+      - description: 'Error message language: zh-CN or en-US'
+        in: header
+        name: Accept-Language
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.readinessAPIResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/api.errorResponse'
+      summary: Readiness probe
+      tags:
+      - system
+  /v1/messages:
+    post:
+      consumes:
+      - application/json
+      description: Validates and durably accepts one notification for asynchronous
+        delivery. Reusing source_system and source_request_id with identical content
+        returns the original event as a duplicate.
+      parameters:
+      - description: 'Error message language: zh-CN or en-US'
+        in: header
+        name: Accept-Language
+        type: string
+      - description: Notification to deliver; payload example follows Lark's documented
+          custom-bot text schema
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.createLarkBotMessageExample'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/api.createMessageAPIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.errorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.errorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.errorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/api.errorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/api.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: Submit a notification
+      tags:
+      - messages
+  /v1/messages/{source_request_id}:
+    get:
+      description: Returns the delivery state for the requested source system and
+        source request ID.
+      parameters:
+      - description: 'Error message language: zh-CN or en-US'
+        in: header
+        name: Accept-Language
+        type: string
+      - description: Source request ID
+        in: path
+        name: source_request_id
+        required: true
+        type: string
+      - description: Source system
+        in: query
+        name: source_system
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.messageStatusAPIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.errorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.errorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/api.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get notification status
+      tags:
+      - messages
+  /v1/providers:
+    get:
+      description: Returns every runtime-enabled provider_code and provider_action
+        with a Chinese functional description, suitable for agent or MCP capability
+        discovery.
+      parameters:
+      - description: 'Error message language: zh-CN or en-US'
+        in: header
+        name: Accept-Language
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.providerCapabilitiesAPIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/api.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: List supported provider capabilities
+      tags:
+      - providers
+schemes:
+- http
+- https
+securityDefinitions:
+  BearerAuth:
+    description: 'Swagger UI accepts the raw token and adds the Bearer prefix automatically.
+      Direct HTTP clients must send Authorization: Bearer {token}.'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
