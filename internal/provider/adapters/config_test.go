@@ -155,6 +155,29 @@ func TestRepositoryProvidersConfigBuildsThroughAdapterConfigs(t *testing.T) {
 	}
 }
 
+func TestRepositoryLoadtestProvidersConfigBuildsIndependently(t *testing.T) {
+	cfg, err := appconfig.LoadProviders(filepath.Join("..", "..", "..", "config", "providers.loadtest.yaml"))
+	if err != nil {
+		t.Fatalf("LoadProviders() error = %v", err)
+	}
+	registry := provider.NewRegistry(cfg, testCredentialResolver{}, nil, nil)
+	Register(registry)
+	if err := registry.Build(); err != nil {
+		t.Fatalf("Registry.Build() error = %v", err)
+	}
+
+	resolved, ok := registry.Lookup(loadtestHTTPProviderCode, loadtestActionRequest)
+	if !ok {
+		t.Fatalf("Lookup(%q, %q) not found", loadtestHTTPProviderCode, loadtestActionRequest)
+	}
+	if resolved.RequestsPerSecond != 0 || resolved.MaxConcurrency != 256 {
+		t.Fatalf("loadtest limits = rps %v concurrency %d", resolved.RequestsPerSecond, resolved.MaxConcurrency)
+	}
+	if _, ok := registry.Lookup(larkBotProviderCode, actionSend); ok {
+		t.Fatal("loadtest-only registry unexpectedly contains lark-bot/send")
+	}
+}
+
 func configNode(t *testing.T, text string) yaml.Node {
 	t.Helper()
 	var document yaml.Node

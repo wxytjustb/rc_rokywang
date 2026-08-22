@@ -1,0 +1,79 @@
+name: rc-rokywang-dev
+
+services:
+  # This file is an overlay for dev/docker-compose.yaml. LOADTEST_MQ_DRIVER
+  # selects memory, rabbitmq, or nsq without changing the application image.
+  loadtest-server:
+    image: rc-rokywang:dev
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["/app/server", "--config", "/app/config/server.loadtest.yaml"]
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-test}:${POSTGRES_PASSWORD:-test}@postgres:5432/loadtest?sslmode=disable"
+      DB_AUTO_CREATE: "true"
+      MQ_DRIVER: "${LOADTEST_MQ_DRIVER:-memory}"
+      RABBITMQ_URL: "amqp://test:test@rabbitmq:5672/"
+      LOADTEST_HTTP_ENDPOINT: "http://127.0.0.1:18080/loadtest"
+      LOADTEST_AUTH_TOKEN: "${LOADTEST_AUTH_TOKEN:-loadtest-token}"
+      LOADTEST_WORKER_CONCURRENCY: "${LOADTEST_WORKER_CONCURRENCY:-256}"
+      LOADTEST_PROVIDER_MAX_CONCURRENCY: "${LOADTEST_PROVIDER_MAX_CONCURRENCY:-256}"
+      LOADTEST_MEMORY_BUFFER_SIZE: "${LOADTEST_MEMORY_BUFFER_SIZE:-65536}"
+      LOG_LEVEL: "${LOADTEST_LOG_LEVEL:-warn}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${LOADTEST_API_PORT:-18877}:8877"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8877/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  # Enable this profile only for rabbitmq/nsq. The standalone binary rejects
+  # memory because an in-process channel cannot cross a process boundary.
+  loadtest-worker:
+    profiles: ["external-mq"]
+    image: rc-rokywang:dev
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["/app/worker", "--config", "/app/config/worker.loadtest.yaml"]
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-test}:${POSTGRES_PASSWORD:-test}@postgres:5432/loadtest?sslmode=disable"
+      DB_AUTO_CREATE: "true"
+      MQ_DRIVER: "${LOADTEST_MQ_DRIVER:-rabbitmq}"
+      RABBITMQ_URL: "amqp://test:test@rabbitmq:5672/"
+      LOADTEST_HTTP_ENDPOINT: "http://127.0.0.1:18080/loadtest"
+      LOADTEST_WORKER_CONCURRENCY: "${LOADTEST_WORKER_CONCURRENCY:-256}"
+      LOADTEST_PROVIDER_MAX_CONCURRENCY: "${LOADTEST_PROVIDER_MAX_CONCURRENCY:-256}"
+      LOG_LEVEL: "${LOADTEST_LOG_LEVEL:-warn}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mock-provider:
+    image: nginx:1.30.4-alpine
+    # Default owner is loadtest-server for Memory. External-MQ commands set
+    # LOADTEST_PROVIDER_NETWORK_OWNER=loadtest-worker.
+    network_mode: "service:${LOADTEST_PROVIDER_NETWORK_OWNER:-loadtest-server}"
+    volumes:
+      - ./nginx-loadtest/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      loadtest-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:18080/healthz"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+      start_period: 2s
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
+    restart: unless-stopped

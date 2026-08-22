@@ -1,0 +1,71 @@
+# Dedicated load-test API. Memory embeds the Worker; RabbitMQ and NSQ publish
+# to the matching standalone config/worker.loadtest.yaml process.
+http:
+  addr: ":8877"
+  read_timeout: 10s
+  write_timeout: 15s
+  shutdown_timeout: 15s
+  max_body_bytes: 1048576
+
+swagger:
+  enabled: false
+
+database:
+  driver: "${DB_DRIVER:-postgres}"
+  dsn: "${DATABASE_URL:-postgres://test:test@127.0.0.1:5432/loadtest?sslmode=disable}"
+  auto_create: ${DB_AUTO_CREATE:-true}
+  max_conns: ${LOADTEST_DB_MAX_CONNS:-50}
+  min_conns: 5
+
+mq:
+  driver: "${MQ_DRIVER:-memory}"
+  memory:
+    buffer_size: ${LOADTEST_MEMORY_BUFFER_SIZE:-65536}
+    default_requeue_delay: 1s
+    max_requeue_delay: 1m
+    max_attempts: 1
+  nsq:
+    nsqd_addr: "${NSQD_ADDR:-nsqd:4150}"
+    lookupd_addrs:
+      - "${NSQLOOKUPD_ADDR:-nsqlookupd:4161}"
+    topic: "notification-delivery-loadtest"
+    channel: "loadtest-worker"
+    default_requeue_delay: 1s
+    max_requeue_delay: 1m
+    max_attempts: 1
+  rabbitmq:
+    url: "${RABBITMQ_URL:-amqp://test:test@127.0.0.1:5672/}"
+    exchange: ""
+    exchange_type: "direct"
+    queue: "notification-delivery-loadtest"
+    routing_key: ""
+    durable: true
+    prefetch_count: ${LOADTEST_MQ_PREFETCH:-256}
+    reconnect_delay: 1s
+    default_requeue_delay: 1s
+    max_requeue_delay: 1m
+    max_attempts: 1
+
+worker:
+  lease:
+    duration: 60s
+    renew_interval: 20s
+  concurrency: ${LOADTEST_WORKER_CONCURRENCY:-256}
+  compensator:
+    publish_scan_interval: 15s
+    publish_batch_size: 500
+    lease_scan_interval: 15s
+    lease_scan_batch_size: 200
+  http_client:
+    max_response_bytes: 65536
+    allowed_response_headers:
+      - "Content-Type"
+      - "X-Request-Id"
+
+auth:
+  tokens:
+    - "${LOADTEST_AUTH_TOKEN:-loadtest-token}"
+
+providers_file: "config/providers.loadtest.yaml"
+
+auto_migrate: true

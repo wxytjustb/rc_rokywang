@@ -1,0 +1,8 @@
+# Isolated provider registry for the embedded Memory load-test worker.
+providers:
+  loadtest-http:
+    actions:
+      request:
+        endpoint_url: "${LOADTEST_HTTP_ENDPOINT:-http://127.0.0.1:18080/loadtest}"
+        timeout_ms: ${LOADTEST_PROVIDER_TIMEOUT_MS:-5000}
+        max_concurrency: ${LOADTEST_PROVIDER_MAX_CONCURRENCY:-256}

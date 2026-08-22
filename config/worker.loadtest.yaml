@@ -1,0 +1,54 @@
+# Standalone load-test Worker for RabbitMQ or NSQ. Memory mode stays embedded
+# in cmd/server and must not start this process.
+database:
+  driver: "${DB_DRIVER:-postgres}"
+  dsn: "${DATABASE_URL:-postgres://test:test@127.0.0.1:5432/loadtest?sslmode=disable}"
+  auto_create: ${DB_AUTO_CREATE:-true}
+  max_conns: ${LOADTEST_DB_MAX_CONNS:-50}
+  min_conns: 5
+
+mq:
+  driver: "${MQ_DRIVER:-rabbitmq}"
+  nsq:
+    nsqd_addr: "${NSQD_ADDR:-nsqd:4150}"
+    lookupd_addrs:
+      - "${NSQLOOKUPD_ADDR:-nsqlookupd:4161}"
+    topic: "notification-delivery-loadtest"
+    channel: "loadtest-worker"
+    default_requeue_delay: 1s
+    max_requeue_delay: 1m
+    max_attempts: 1
+  rabbitmq:
+    url: "${RABBITMQ_URL:-amqp://test:test@127.0.0.1:5672/}"
+    exchange: ""
+    exchange_type: "direct"
+    queue: "notification-delivery-loadtest"
+    routing_key: ""
+    durable: true
+    prefetch_count: ${LOADTEST_MQ_PREFETCH:-256}
+    reconnect_delay: 1s
+    default_requeue_delay: 1s
+    max_requeue_delay: 1m
+    max_attempts: 1
+
+providers_file: "config/providers.loadtest.yaml"
+
+lease:
+  duration: 60s
+  renew_interval: 20s
+
+concurrency: ${LOADTEST_WORKER_CONCURRENCY:-256}
+
+compensator:
+  publish_scan_interval: 15s
+  publish_batch_size: 500
+  lease_scan_interval: 15s
+  lease_scan_batch_size: 200
+
+http_client:
+  max_response_bytes: 65536
+  allowed_response_headers:
+    - "Content-Type"
+    - "X-Request-Id"
+
+auto_migrate: true
