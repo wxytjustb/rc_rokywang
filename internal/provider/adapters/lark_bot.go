@@ -24,7 +24,7 @@ const (
 	larkMaxRequestBytes = 20 * 1024
 )
 
-// LarkBot sends messages through a Lark (飞书) custom bot webhook. The
+// LarkBot sends messages through a Lark custom bot webhook. The
 // webhook URL itself is a credential. When the bot enables signature
 // verification, this adapter also adds Lark's documented timestamp and
 // HMAC-SHA256 signature.
@@ -46,16 +46,11 @@ type larkBotConfig struct {
 }
 
 type larkSendConfig struct {
-	WebhookURL        string                    `yaml:"webhook_url"`
-	TimeoutMs         int                       `yaml:"timeout_ms"`
-	RequestsPerSecond float64                   `yaml:"requests_per_second"`
-	MaxConcurrency    int                       `yaml:"max_concurrency"`
-	CircuitBreaker    *larkCircuitBreakerConfig `yaml:"circuit_breaker"`
-}
-
-type larkCircuitBreakerConfig struct {
-	FailureThreshold uint32        `yaml:"failure_threshold"`
-	OpenDuration     time.Duration `yaml:"open_duration"`
+	WebhookURL        string                       `yaml:"webhook_url"`
+	TimeoutMs         int                          `yaml:"timeout_ms"`
+	RequestsPerSecond float64                      `yaml:"requests_per_second"`
+	MaxConcurrency    int                          `yaml:"max_concurrency"`
+	CircuitBreaker    *adapterCircuitBreakerConfig `yaml:"circuit_breaker"`
 }
 
 func (LarkBot) Config(raw yaml.Node) (provider.Config, error) {
@@ -73,7 +68,7 @@ func (LarkBot) Config(raw yaml.Node) (provider.Config, error) {
 	if action.RequestsPerSecond > 5 {
 		return provider.Config{}, fmt.Errorf("actions.%s.requests_per_second must not exceed Lark's documented 5 requests/second limit", actionSend)
 	}
-	breaker, err := normalizeLarkCircuitBreaker(action.CircuitBreaker)
+	breaker, err := normalizeCircuitBreaker(action.CircuitBreaker)
 	if err != nil {
 		return provider.Config{}, fmt.Errorf("actions.%s.circuit_breaker: %w", actionSend, err)
 	}
@@ -90,22 +85,6 @@ func (LarkBot) Config(raw yaml.Node) (provider.Config, error) {
 				CircuitBreaker:    breaker,
 			},
 		},
-	}, nil
-}
-
-func normalizeLarkCircuitBreaker(cfg *larkCircuitBreakerConfig) (*provider.CircuitBreakerConfig, error) {
-	if cfg == nil {
-		return nil, nil
-	}
-	if cfg.FailureThreshold == 0 {
-		return nil, fmt.Errorf("failure_threshold must be greater than zero")
-	}
-	if cfg.OpenDuration <= 0 {
-		return nil, fmt.Errorf("open_duration must be greater than zero")
-	}
-	return &provider.CircuitBreakerConfig{
-		FailureThreshold: cfg.FailureThreshold,
-		OpenDuration:     cfg.OpenDuration,
 	}, nil
 }
 

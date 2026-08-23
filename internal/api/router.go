@@ -7,14 +7,13 @@ import (
 	"github.com/gin-gonic/gin"
 
 	_ "notification-delivery/docs"
-	"notification-delivery/internal/provider"
-	"notification-delivery/internal/publish"
+	"notification-delivery/internal/application/notification"
+	"notification-delivery/internal/authn"
 )
 
 type Deps struct {
-	Repo           EventRepo
-	Registry       *provider.Registry
-	Publisher      *publish.Service
+	Service        *notification.Service
+	AuthVerifier   *authn.Verifier
 	Logger         *slog.Logger
 	AuthTokens     []string
 	MaxBodyBytes   int64
@@ -103,9 +102,9 @@ func NewRouter(d Deps) *gin.Engine {
 		r.GET("/docs/*any", swaggerHandler(defaultBearerToken))
 	}
 
-	h := &Handlers{repo: d.Repo, registry: d.Registry, publisher: d.Publisher, logger: d.Logger}
+	h := &Handlers{service: d.Service}
 
-	v1 := r.Group("/v1", bearerAuth(d.AuthTokens))
+	v1 := r.Group("/v1", bearerAuth(d.AuthVerifier))
 	v1.GET("/providers", h.listProviders)
 	v1.POST("/messages", h.createMessage)
 	v1.GET("/messages/:source_request_id", h.getMessage)

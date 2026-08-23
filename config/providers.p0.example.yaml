@@ -1,0 +1,43 @@
+# P0 adapter example. Copy the providers you need into providers.yaml or point
+# providers_file at a reviewed copy of this file. The example destinations are
+# placeholders and must be replaced before sending real messages.
+providers:
+  smtp-email:
+    # EnvCredentialResolver maps this reference to:
+    # NOTIF_CRED_NOTIFICATION_SMTP_EMAIL_PASSWORD
+    password_ref: "vault://notification/smtp-email-password"
+    actions:
+      send:
+        host: "${SMTP_EMAIL_HOST:-smtp.example.com}"
+        port: ${SMTP_EMAIL_PORT:-587}
+        # starttls is the default. implicit_tls supports port 465-style SMTP.
+        # disabled is rejected unless host is a loopback test server.
+        tls_mode: "${SMTP_EMAIL_TLS_MODE:-starttls}"
+        username: "${SMTP_EMAIL_USERNAME:-notifier@example.com}"
+        from_address: "${SMTP_EMAIL_FROM_ADDRESS:-notifier@example.com}"
+        from_name: "${SMTP_EMAIL_FROM_NAME:-Notification Delivery}"
+        timeout_ms: 10000
+        requests_per_second: 10
+        max_concurrency: 4
+        circuit_breaker:
+          failure_threshold: 5
+          open_duration: 30s
+
+  webhook:
+    # EnvCredentialResolver maps this reference to:
+    # NOTIF_CRED_NOTIFICATION_WEBHOOK_SECRET
+    credential_ref: "vault://notification/webhook-secret"
+    actions:
+      deliver:
+        # The endpoint is fixed at startup. Payload cannot override it, and
+        # redirects are rejected rather than followed.
+        endpoint_url: "${WEBHOOK_ENDPOINT_URL:-https://events.example.com/notifications}"
+        # none, bearer, or hmac_sha256. For hmac_sha256 the adapter sends:
+        # X-Webhook-Timestamp and X-Webhook-Signature: sha256=<hex digest>.
+        authentication: "${WEBHOOK_AUTHENTICATION:-hmac_sha256}"
+        timeout_ms: 5000
+        requests_per_second: 20
+        max_concurrency: 10
+        circuit_breaker:
+          failure_threshold: 5
+          open_duration: 30s

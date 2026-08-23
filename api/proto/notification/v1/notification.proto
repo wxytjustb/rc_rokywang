@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package notification.v1;
+
+option go_package = "notification-delivery/gen/notification/v1;notificationv1";
+
+import "google/protobuf/timestamp.proto";
+
+service NotificationService {
+  rpc SubmitNotification(SubmitNotificationRequest) returns (SubmitNotificationResponse);
+  rpc GetNotificationStatus(GetNotificationStatusRequest) returns (NotificationStatusResponse);
+  rpc ListProviderCapabilities(ListProviderCapabilitiesRequest) returns (ListProviderCapabilitiesResponse);
+}
+
+enum NotificationStatus {
+  NOTIFICATION_STATUS_UNSPECIFIED = 0;
+  NOTIFICATION_STATUS_PENDING = 1;
+  NOTIFICATION_STATUS_PROCESSING = 2;
+  NOTIFICATION_STATUS_SUCCEEDED = 3;
+  NOTIFICATION_STATUS_FAILED = 4;
+  NOTIFICATION_STATUS_UNKNOWN = 5;
+}
+
+message SubmitNotificationRequest {
+  string source_system = 1;
+  string source_request_id = 2;
+  string provider_code = 3;
+  string provider_action = 4;
+  // UTF-8 encoded JSON owned and validated by the selected provider adapter.
+  bytes payload_json = 5;
+}
+
+message SubmitNotificationResponse {
+  string event_id = 1;
+  string source_system = 2;
+  string source_request_id = 3;
+  NotificationStatus status = 4;
+  bool duplicate = 5;
+  google.protobuf.Timestamp accepted_at = 6;
+}
+
+message GetNotificationStatusRequest {
+  string source_system = 1;
+  string source_request_id = 2;
+}
+
+message NotificationStatusResponse {
+  string event_id = 1;
+  string source_system = 2;
+  string source_request_id = 3;
+  string provider_code = 4;
+  string provider_action = 5;
+  NotificationStatus status = 6;
+  int32 attempt_count = 7;
+  bytes last_result_json = 8;
+  bytes provider_response_json = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+message ListProviderCapabilitiesRequest {}
+
+message ProviderActionCapability {
+  string provider_action = 1;
+  string description = 2;
+}
+
+message ProviderCapability {
+  string provider_code = 1;
+  repeated ProviderActionCapability actions = 2;
+}
+
+message ListProviderCapabilitiesResponse {
+  repeated ProviderCapability providers = 1;
+}

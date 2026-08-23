@@ -178,6 +178,63 @@ func TestRepositoryLoadtestProvidersConfigBuildsIndependently(t *testing.T) {
 	}
 }
 
+func TestRepositoryP0ProvidersExampleBuilds(t *testing.T) {
+	cfg, err := appconfig.LoadProviders(filepath.Join("..", "..", "..", "config", "providers.p0.example.yaml"))
+	if err != nil {
+		t.Fatalf("LoadProviders() error = %v", err)
+	}
+	registry := provider.NewRegistry(cfg, testCredentialResolver{}, nil, nil)
+	Register(registry)
+	if err := registry.Build(); err != nil {
+		t.Fatalf("Registry.Build() error = %v", err)
+	}
+	if _, ok := registry.Lookup(smtpEmailProviderCode, smtpActionSend); !ok {
+		t.Fatalf("Lookup(%q, %q) not found", smtpEmailProviderCode, smtpActionSend)
+	}
+	if _, ok := registry.Lookup(webhookProviderCode, webhookActionDeliver); !ok {
+		t.Fatalf("Lookup(%q, %q) not found", webhookProviderCode, webhookActionDeliver)
+	}
+}
+
+func TestRegisterIncludesSMTPEmailAndWebhookAdapters(t *testing.T) {
+	cfg := &appconfig.ProvidersConfig{Providers: map[string]yaml.Node{
+		smtpEmailProviderCode: configNode(t, `
+password_ref: vault://notification/smtp-password
+actions:
+  send:
+    host: smtp.example.com
+    port: 587
+    tls_mode: starttls
+    username: notifier@example.com
+    from_address: notifier@example.com
+    timeout_ms: 5000
+    requests_per_second: 10
+    max_concurrency: 4
+`),
+		webhookProviderCode: configNode(t, `
+credential_ref: vault://notification/webhook-secret
+actions:
+  deliver:
+    endpoint_url: https://events.example.com/notifications
+    authentication: bearer
+    timeout_ms: 5000
+    requests_per_second: 20
+    max_concurrency: 10
+`),
+	}}
+	registry := provider.NewRegistry(cfg, testCredentialResolver{}, nil, nil)
+	Register(registry)
+	if err := registry.Build(); err != nil {
+		t.Fatalf("Registry.Build() error = %v", err)
+	}
+	if _, ok := registry.Lookup(smtpEmailProviderCode, smtpActionSend); !ok {
+		t.Fatalf("Lookup(%q, %q) not found", smtpEmailProviderCode, smtpActionSend)
+	}
+	if _, ok := registry.Lookup(webhookProviderCode, webhookActionDeliver); !ok {
+		t.Fatalf("Lookup(%q, %q) not found", webhookProviderCode, webhookActionDeliver)
+	}
+}
+
 func configNode(t *testing.T, text string) yaml.Node {
 	t.Helper()
 	var document yaml.Node

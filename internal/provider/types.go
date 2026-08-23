@@ -52,11 +52,11 @@ type ActionContext struct {
 	Method         string
 	Credential     string
 	TimeoutMs      int
-	// SourceRequestID is set by the worker from the event row before
-	// calling SendActionRequest. An adapter may forward it to the vendor
-	// (header or body) purely to aid the vendor's own support/reconciliation
-	// tooling — per DESIGN.md §7 this is never treated as the vendor
-	// actually implementing idempotency.
+	// SourceSystem and SourceRequestID are set by the worker from the event's
+	// complete internal idempotency key. Adapters may derive stable external
+	// correlation values from both fields, but this does not prove that the
+	// external provider implements idempotency.
+	SourceSystem    string
 	SourceRequestID string
 
 	// HTTPClient is the shared, size/timeout-bounded client (DESIGN.md
@@ -72,7 +72,9 @@ type ActionContext struct {
 // Config is the normalized runtime result of an adapter's provider-specific
 // configuration rules. It is deliberately not the shape of providers.yaml:
 // every adapter decodes that YAML into its own private config type and then
-// returns only the common values the delivery runtime needs.
+// returns only the common values the delivery runtime needs. An adapter may
+// also retain immutable, non-secret protocol settings on its own instance;
+// credentials still flow only through ActionContext.Credential.
 type Config struct {
 	CredentialRef string
 	Actions       map[string]ActionConfig

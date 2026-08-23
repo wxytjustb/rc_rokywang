@@ -7,6 +7,13 @@ http:
   shutdown_timeout: 15s
   max_body_bytes: 1048576
 
+# The load-test profile measures the existing REST ingestion path only.
+mcp:
+  enabled: false
+
+grpc:
+  enabled: false
+
 swagger:
   enabled: false
 

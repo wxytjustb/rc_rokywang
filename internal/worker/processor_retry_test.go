@@ -67,9 +67,10 @@ func (r retryTestRegistry) Lookup(_, _ string) (provider.ResolvedAction, bool) {
 }
 
 type retryTestAdapter struct {
-	result *provider.Result
-	err    error
-	calls  *atomic.Int32
+	result      *provider.Result
+	err         error
+	calls       *atomic.Int32
+	lastContext *provider.ActionContext
 }
 
 func (retryTestAdapter) ProviderCode() string { return "test" }
@@ -77,9 +78,12 @@ func (retryTestAdapter) Config(yaml.Node) (provider.Config, error) {
 	panic("not used")
 }
 func (retryTestAdapter) Validate(string, json.RawMessage) error { return nil }
-func (a retryTestAdapter) SendActionRequest(context.Context, provider.ActionContext, string, json.RawMessage) (*provider.Result, error) {
+func (a retryTestAdapter) SendActionRequest(_ context.Context, actionContext provider.ActionContext, _ string, _ json.RawMessage) (*provider.Result, error) {
 	if a.calls != nil {
 		a.calls.Add(1)
+	}
+	if a.lastContext != nil {
+		*a.lastContext = actionContext
 	}
 	return a.result, a.err
 }
@@ -106,6 +110,31 @@ func newRetryTestProcessor(repo *retryTestRepo, attempt int16) (*Processor, *dom
 		AttemptCount: attempt, Payload: json.RawMessage(`{"value":1}`),
 	}
 	return p, ev, uuid.New()
+}
+
+func TestProcessorPassesCompleteSourceIdempotencyKeyToAdapter(t *testing.T) {
+	repo := &retryTestRepo{}
+	p, event, leaseToken := newRetryTestProcessor(repo, 1)
+	event.SourceSystem = "source-a"
+	event.SourceRequestID = "request-1"
+	var got provider.ActionContext
+	p.Registry = retryTestRegistry{resolved: provider.ResolvedAction{
+		Adapter: retryTestAdapter{lastContext: &got, result: &provider.Result{
+			ErrorClass: "TEST_FAILURE",
+			Message:    "retry",
+		}},
+		Context: provider.ActionContext{ProviderCode: "test", ProviderAction: "send"},
+	}}
+
+	err := p.process(context.Background(), event, leaseToken, mq.Delivery{
+		Attempts: 1, MaxAttempts: 3, RequeueDelay: time.Second,
+	})
+	if err == nil {
+		t.Fatal("process() error = nil, want requeue signal")
+	}
+	if got.SourceSystem != "source-a" || got.SourceRequestID != "request-1" {
+		t.Fatalf("adapter action context = %+v", got)
+	}
 }
 
 func TestProcessorReleasesEveryProviderFailureForMQRequeue(t *testing.T) {

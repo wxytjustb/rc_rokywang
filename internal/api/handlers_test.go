@@ -9,6 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"notification-delivery/internal/application/notification"
+	"notification-delivery/internal/authn"
 	"notification-delivery/internal/domain"
 )
 
@@ -37,8 +39,8 @@ func TestGetMessageUsesExplicitSourceSystemQuery(t *testing.T) {
 		Status:          domain.StatusPending,
 	}}
 	router := NewRouter(Deps{
-		Repo:       repo,
-		AuthTokens: []string{"shared-token"},
+		Service:      notification.NewService(repo, nil, nil, nil),
+		AuthVerifier: authn.NewVerifier([]string{"shared-token"}),
 	})
 
 	request := httptest.NewRequest(http.MethodGet, "/v1/messages/request-1?source_system=billing-system", nil)
@@ -58,8 +60,8 @@ func TestGetMessageRequiresSourceSystemQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &recordingEventRepo{}
 	router := NewRouter(Deps{
-		Repo:       repo,
-		AuthTokens: []string{"shared-token"},
+		Service:      notification.NewService(repo, nil, nil, nil),
+		AuthVerifier: authn.NewVerifier([]string{"shared-token"}),
 	})
 
 	request := httptest.NewRequest(http.MethodGet, "/v1/messages/request-1", nil)

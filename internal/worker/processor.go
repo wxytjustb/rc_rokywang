@@ -129,6 +129,7 @@ func (p *Processor) process(ctx context.Context, ev *domain.Event, leaseToken uu
 	}
 
 	ac := resolved.Context
+	ac.SourceSystem = ev.SourceSystem
 	ac.SourceRequestID = ev.SourceRequestID
 
 	p.debug("provider request starting",

@@ -37,11 +37,12 @@ func New(maxResponseBytes int64) *Client {
 }
 
 type Request struct {
-	Method  string
-	URL     string
-	Headers map[string]string
-	Body    []byte
-	Timeout time.Duration
+	Method          string
+	URL             string
+	Headers         map[string]string
+	Body            []byte
+	Timeout         time.Duration
+	RejectRedirects bool
 }
 
 type Response struct {
@@ -70,7 +71,15 @@ func (c *Client) Do(ctx context.Context, req Request) (*Response, error) {
 		httpReq.Header.Set(k, v)
 	}
 
-	resp, err := c.inner.Do(httpReq)
+	client := c.inner
+	if req.RejectRedirects {
+		copy := *c.inner
+		copy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+		client = &copy
+	}
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, err
 	}

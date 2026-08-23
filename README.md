@@ -13,7 +13,7 @@
 
 项目坚持“单消息、单供应商、单动作”的边界：它专注于稳定投递、幂等受理和结果查询，不提供广播、通用工作流或动态脚本执行能力。
 
-> 当前状态：项目处于早期开发阶段，API、配置格式和数据库结构仍可能变化。当前内置供应商适配器仅包含飞书自定义机器人（`lark-bot/send`）。
+> 当前状态：项目处于早期开发阶段，API、配置格式和数据库结构仍可能变化。当前内置 `lark-bot/send`、`smtp-email/send` 和 `webhook/deliver`；默认 `providers.yaml` 只启用飞书，另外两个适配器需要配置部署方自己的目标和凭据。
 
 ## 特性
 
@@ -23,16 +23,22 @@
 - 通过数据库条件更新和 Worker 租约处理重复消费与进程崩溃恢复。
 - 按 `provider_code + provider_action` 实施 Payload 校验、进程内熔断、并发限制、速率限制和明确成功判断。
 - 供应商适配器拥有各自的严格 YAML 配置契约，启动时拒绝未知或错配字段。
-- 提供消息提交、状态查询、存活检查、就绪检查和可选 Swagger UI。
+- 同时提供 REST、MCP Streamable HTTP 和原生 gRPC 接口；三种协议复用同一业务服务、幂等语义和 Bearer 鉴权。
+- 提供消息提交、状态查询、能力发现、存活检查、就绪检查和可选 Swagger UI。
 - 对供应商响应进行大小限制、Header 白名单过滤和敏感字段脱敏。
 
 ## 架构
 
 ```mermaid
 flowchart LR
-    Client["业务系统"] --> API["HTTP API"]
-    API --> DB[("PostgreSQL")]
-    API --> MQ["RabbitMQ / NSQ / Memory"]
+    Client["业务系统 / Agent"] --> REST["REST :8877"]
+    Client --> MCP["MCP /mcp :8877"]
+    Client --> GRPC["gRPC :8878"]
+    REST --> Service["Notification Service"]
+    MCP --> Service
+    GRPC --> Service
+    Service --> DB[("PostgreSQL")]
+    Service --> MQ["RabbitMQ / NSQ / Memory"]
     MQ --> Worker["Delivery Worker"]
     Worker --> Adapter["Provider Adapter"]
     Adapter --> Provider["外部供应商 API"]
@@ -47,6 +53,8 @@ flowchart LR
 
 - Go 1.25
 - Gin + Cobra
+- gRPC + Protocol Buffers
+- Model Context Protocol Go SDK（Streamable HTTP）
 - GORM（连接与执行层）
 - PostgreSQL 16
 - RabbitMQ 3.13、NSQ 1.3 或进程内 Channel
@@ -71,7 +79,7 @@ curl http://127.0.0.1:8877/healthz
 curl http://127.0.0.1:8877/readyz
 ```
 
-Swagger UI 位于 <http://127.0.0.1:8877/docs>。RabbitMQ 管理页面位于 <http://127.0.0.1:15672>，开发账号和密码均为 `test`。
+Swagger UI 位于 <http://127.0.0.1:8877/docs>，MCP 端点为 <http://127.0.0.1:8877/mcp>，gRPC 监听 `127.0.0.1:8878`。RabbitMQ 管理页面位于 <http://127.0.0.1:15672>，开发账号和密码均为 `test`。
 
 Adminer 数据库管理页面位于 <http://127.0.0.1:8081>，默认连接信息为：
 
@@ -126,7 +134,7 @@ go run ./cmd/worker --config config/worker.yaml
 docker compose -f dev/docker-compose.yaml up -d postgres rabbitmq
 ```
 
-## API 使用
+## REST API 使用
 
 下面使用启动示例中配置的 `dev-system-token` 提交一条飞书机器人消息：
 
@@ -155,9 +163,49 @@ curl 'http://127.0.0.1:8877/v1/messages/lark-bot-send-request-id-uuid4?source_sy
   -H 'Authorization: Bearer dev-system-token'
 ```
 
-Bearer Token 只用于验证 API 访问权限，不再绑定 `source_system`。提交消息时从请求体读取 `source_system`；查询消息时必须通过 `source_system` Query 参数提供完整幂等键。若要实际发送消息，请通过运行环境中的 `LARK_BOT_WEBHOOK_URL` 提供有效的飞书自定义机器人 Webhook；容器部署时需要把该变量显式加入 Server 和 Worker 的环境配置。不要把真实 Webhook 提交到仓库，仓库内的占位地址只用于配置校验。
+Bearer Token 只用于验证 REST、MCP 和 gRPC 的服务访问权限，不绑定 `source_system`。提交消息时从请求体读取 `source_system`；查询消息时必须提供 `source_system` 和 `source_request_id` 组成的完整幂等键。若要实际发送消息，请通过运行环境中的 `LARK_BOT_WEBHOOK_URL` 提供有效的飞书自定义机器人 Webhook；容器部署时需要把该变量显式加入 Server 和 Worker 的环境配置。不要把真实 Webhook 提交到仓库，仓库内的占位地址只用于配置校验。
 
 `lark-bot/send` 的 `payload` 采用[飞书自定义机器人官方消息体](https://open.larksuite.com/document/ukTMukTMukTM/ucTM5YjL3ETO24yNxkjN)：支持 `text`、`post`、`image`、`share_chat` 和 `interactive`。旧的 `{"text":"..."}` 简写仍可使用，但新接入应使用官方的 `msg_type + content/card` 结构。适配器会在受理阶段检查消息类型和关键字段，并执行官方规定的 20 KB 请求体限制。`LARK_BOT_WEBHOOK_URL` 未配置时服务会启动失败，避免把消息误投到占位地址。
+
+### SMTP 邮件
+
+`smtp-email/send` 发送一封纯文本、HTML 或两者兼有的事务邮件。第一版只接受 `to`、`subject`、`text` 和 `html`，不包含抄送、密送、模板或附件：
+
+```json
+{
+  "source_system": "order-service",
+  "source_request_id": "order-123-email",
+  "provider_code": "smtp-email",
+  "provider_action": "send",
+  "payload": {
+    "to": ["user@example.com"],
+    "subject": "订单处理完成",
+    "text": "订单 123 已处理完成",
+    "html": "<p>订单 123 已处理完成</p>"
+  }
+}
+```
+
+适配器支持 `starttls` 和 `implicit_tls`；`disabled` 只允许连接 Loopback 测试服务器。用户名存在时必须同时配置 `password_ref`，密码由 Credential Resolver 注入。邮件只在 SMTP 服务器于 `DATA` 阶段明确接受完整消息后成功；这表示“SMTP 服务器已接受”，不表示邮件已经进入收件箱，也不包含退信回执。相同 `source_system + source_request_id` 的重试使用稳定 `Message-ID`，但这不能保证 SMTP 服务端去重。
+
+### 固定端点 Webhook
+
+`webhook/deliver` 将一个 JSON 对象原样 POST 到启动时配置的固定地址：
+
+```json
+{
+  "source_system": "order-service",
+  "source_request_id": "order-123-webhook",
+  "provider_code": "webhook",
+  "provider_action": "deliver",
+  "payload": {
+    "event": "order.completed",
+    "order_id": "123"
+  }
+}
+```
+
+目标 URL 不能由 Payload 覆盖，生产地址必须使用 HTTPS，HTTP 只允许 Loopback 测试端点；URL 不允许内嵌凭据、Query 或 Fragment，响应重定向也不会被跟随。认证支持 `none`、`bearer` 和 `hmac_sha256`。所有请求携带由 `provider_code + source_system + source_request_id` 派生的稳定 `Idempotency-Key`；HMAC 模式另外携带 `X-Webhook-Timestamp` 和 `X-Webhook-Signature: sha256=<hex>`，签名内容为 `timestamp + "." + 原始请求体`。只有 HTTP `2xx` 是明确成功。
 
 主要接口：
 
@@ -169,6 +217,50 @@ Bearer Token 只用于验证 API 访问权限，不再绑定 `source_system`。�
 | `POST` | `/v1/messages` | 幂等受理一条消息 | Bearer Token |
 | `GET` | `/v1/messages/:source_request_id?source_system=...` | 按来源系统和业务请求 ID 查询消息状态 | Bearer Token |
 | `GET` | `/docs` | Swagger UI，需显式启用 | 否 |
+
+## MCP 使用
+
+MCP 使用官方 Go SDK 的 Streamable HTTP 传输，默认端点为 `http://127.0.0.1:8877/mcp`，采用无服务端会话的 JSON 响应模式。客户端需要在每次请求中携带 `Authorization: Bearer <token>`。当前暴露三个工具：
+
+| 工具 | 说明 |
+|---|---|
+| `submit_notification` | 幂等受理一条通知；成功只表示已经持久化受理，不表示供应商已投递成功 |
+| `get_notification_status` | 按 `source_system + source_request_id` 查询持久化状态 |
+| `list_provider_capabilities` | 查询运行时实际启用的 Provider 和 Action |
+
+常见 MCP 客户端可使用下面的 HTTP Server 配置；不同客户端的外层字段名可能不同：
+
+```json
+{
+  "mcpServers": {
+    "notification-delivery": {
+      "type": "http",
+      "url": "http://127.0.0.1:8877/mcp",
+      "headers": {
+        "Authorization": "Bearer dev-system-token"
+      }
+    }
+  }
+}
+```
+
+端点启用了同源保护和请求体大小限制。MCP 工具直接调用共享应用服务，不会绕行调用 REST 接口。
+
+## gRPC 使用
+
+原生 gRPC 默认监听 `127.0.0.1:8878`，契约位于 [api/proto/notification/v1/notification.proto](api/proto/notification/v1/notification.proto)。业务 RPC 与 REST/MCP 使用相同 Bearer Token，在 Metadata 中传递 `authorization: Bearer <token>`；标准 gRPC Health 接口不要求认证。
+
+本地配置默认启用 Reflection，可直接使用 `grpcurl`：
+
+```bash
+grpcurl -plaintext \
+  -H 'authorization: Bearer dev-system-token' \
+  -d '{}' \
+  127.0.0.1:8878 \
+  notification.v1.NotificationService/ListProviderCapabilities
+```
+
+生产环境建议设置 `GRPC_REFLECTION_ENABLED=false`。三个业务 RPC 分别为 `SubmitNotification`、`GetNotificationStatus` 和 `ListProviderCapabilities`；`payload_json` 使用 UTF-8 JSON 字节，仍由选中的 Provider Adapter 校验。
 
 ### Provider 能力发现
 
@@ -264,9 +356,10 @@ Swagger UI 会自动为 `BearerAuth` 填入实际生效的第一个 Token，并�
 
 | 文件 | 用途 |
 |---|---|
-| `config/server.yaml` | HTTP API、数据库、MQ、认证和内嵌 Worker 配置 |
+| `config/server.yaml` | REST/MCP/gRPC、数据库、MQ、认证和内嵌 Worker 配置 |
 | `config/worker.yaml` | 独立 Worker、数据库、MQ 和补偿扫描器配置 |
 | `config/providers.yaml` | 供应商及动作的适配器专属配置 |
+| `config/providers.p0.example.yaml` | SMTP 邮件和固定端点 Webhook 的完整配置示例 |
 
 配置加载器支持 `${NAME}` 和 `${NAME:-default}` 两种环境变量表达式。常用变量包括：
 
@@ -281,8 +374,13 @@ Swagger UI 会自动为 `BearerAuth` 填入实际生效的第一个 Token，并�
 | `MQ_DRIVER` | `rabbitmq` | `rabbitmq`、`nsq` 或 `memory` |
 | `RABBITMQ_URL` | `amqp://test:test@127.0.0.1:5672/` | RabbitMQ 连接地址 |
 | `SWAGGER_ENABLED` | `false` | 是否启用 `/docs` |
+| `MCP_ENABLED` | `true` | 是否在 HTTP 监听器上启用 MCP |
+| `MCP_PATH` | `/mcp` | MCP Streamable HTTP 的精确路径 |
+| `GRPC_ENABLED` | `true` | 是否启用原生 gRPC 监听器 |
+| `GRPC_ADDR` | `:8878` | gRPC 监听地址 |
+| `GRPC_REFLECTION_ENABLED` | `true` | 是否启用 gRPC Reflection；生产环境建议关闭 |
 | `LOG_LEVEL` | `info` | 日志级别：`debug`、`info`、`warn` 或 `error` |
-| `AUTH_TOKEN` | 空 | API Bearer Token；为空时启动自动生成并记录到日志 |
+| `AUTH_TOKEN` | 空 | REST、MCP、gRPC 共用的 Bearer Token；为空时启动自动生成并记录到日志 |
 | `LARK_BOT_WEBHOOK_URL` | 无，必填 | 飞书自定义机器人完整 Webhook |
 | `LARK_BOT_SIGNING_SECRET_REF` | 空 | 可选的飞书签名密钥引用；机器人启用签名校验时配置 |
 
@@ -293,6 +391,8 @@ Swagger UI 会自动为 `BearerAuth` 填入实际生效的第一个 Token，并�
 只有供应商明确返回成功才 ACK。所有未成功结果仍会 requeue；普通失败按数据库 `attempt_count`（真实供应商调用次数）计算 `min(default_requeue_delay × attempt_count, max_requeue_delay)`，`max_attempts=0` 表示不限制。Broker 自身的 attempts 只用于传输观测，不参与终态判断。达到真实调用上限时数据库进入 `FAILED`，不会再 requeue。若 Worker 在最后一次调用期间崩溃，恢复投递的 Claim 会暂时把计数加到上限之外；Processor 会在再次调用供应商前直接写入 `FAILED/MAX_PROVIDER_ATTEMPTS_EXHAUSTED`，并原子回退这次未发生调用的计数增量。
 
 `lark-bot/send` 示例启用了进程内 Action 级熔断：连续 5 次可用性失败后开放 30 秒，到期只允许一个半开探测。传输错误、HTTP `408/429/5xx`、飞书 `code=11232` 和不符合协议的 HTTP 200 响应计入熔断；普通 `4xx`、其他飞书业务错误及 Adapter 内部错误不计入。熔断拒绝发生在限流器和 `REQUESTING` 之前，不调用供应商，并原子回退领取时增加的 `attempt_count`。Memory、RabbitMQ 按熔断剩余时间精确延期；NSQ 使用不触发 Consumer 全局退避的延期 requeue。进程重启后熔断状态恢复为 `CLOSED`，多个副本各自维护状态。
+
+启用两个 P0 适配器前，复制 [config/providers.p0.example.yaml](config/providers.p0.example.yaml) 中需要的 Provider 到实际配置，并注入相应凭据。例如示例引用会解析为 `NOTIF_CRED_NOTIFICATION_SMTP_EMAIL_PASSWORD` 和 `NOTIF_CRED_NOTIFICATION_WEBHOOK_SECRET`。不要把真实 SMTP 密码、Bearer Token 或 HMAC Secret 写入 YAML。
 
 这一策略提供更多自动恢复机会，但外部接口不支持幂等时存在重复发送风险：例如飞书已经收到消息、Worker 却在读取响应时超时，下一次 requeue 会再次发送。
 
@@ -335,14 +435,29 @@ go run github.com/swaggo/swag/cmd/swag@v1.16.4 init \
   --parseInternal
 ```
 
+修改 gRPC 契约后重新生成 Go 代码：
+
+```bash
+protoc -I api/proto \
+  --go_out=. --go_opt=module=notification-delivery \
+  --go-grpc_out=. --go-grpc_opt=module=notification-delivery \
+  api/proto/notification/v1/notification.proto
+```
+
 ## 项目结构
 
 ```text
-cmd/                    API 与 Worker 程序入口
+api/proto/              gRPC Protocol Buffers 契约
+cmd/                    多协议 Server 与 Worker 程序入口
 config/                 服务、Worker 和供应商示例配置
 dev/                    本地 Docker Compose 环境
 docs/                   生成的 OpenAPI 文档
-internal/api/           HTTP 路由、认证和请求处理
+gen/                    生成的 gRPC/Protobuf Go 代码
+internal/api/           REST 路由和协议映射
+internal/application/   三种协议共用的通知应用服务
+internal/authn/         协议无关的静态 Bearer Token 校验
+internal/grpcapi/       gRPC Server、拦截器和状态映射
+internal/mcpapi/        MCP Streamable HTTP 与工具定义
 internal/config/        配置加载与类型定义
 internal/mq/            RabbitMQ、NSQ 和内存队列实现
 internal/provider/      供应商适配器接口、注册表与成功响应判断
@@ -354,7 +469,8 @@ internal/worker/        消费、限流、租约和补偿扫描
 ## 当前限制
 
 - 每条消息只能投递给一个供应商并执行一个动作。
-- 当前仅内置 `lark-bot/send` 适配器。
+- 当前内置 `lark-bot/send`、`smtp-email/send` 和 `webhook/deliver`；配置文件中出现的 Provider 才会实际启用。
+- SMTP 成功只表示服务器接受邮件，Webhook 成功只表示固定端点返回 `2xx`；当前没有邮件送达、退信或下游业务最终完成的异步回执状态。
 - 除明确成功外的所有供应商发送结果都返回 MQ requeue；达到真实供应商调用 `max_attempts` 后写入 `FAILED`，没有独立 DLQ。
 - 熔断器按 `provider_code/provider_action` 在进程内维护，不跨副本共享或持久化；熔断延期不消耗真实供应商尝试次数。
 - 只保存最近一次投递结果，不保存完整尝试历史。

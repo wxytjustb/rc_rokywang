@@ -9,6 +9,22 @@ http:
   shutdown_timeout: 15s
   max_body_bytes: 1048576   # 1 MiB
 
+# MCP uses Streamable HTTP on the same listener as the REST API. Keeping it on
+# a distinct path allows an ingress to expose or restrict it independently.
+mcp:
+  enabled: ${MCP_ENABLED:-true}
+  path: "${MCP_PATH:-/mcp}"
+  max_body_bytes: 1048576
+
+# Native gRPC uses its own HTTP/2 listener. Reflection is enabled here for
+# local grpcurl use; disable it on an Internet-facing production listener.
+grpc:
+  enabled: ${GRPC_ENABLED:-true}
+  addr: "${GRPC_ADDR:-:8878}"
+  shutdown_timeout: 15s
+  max_receive_message_bytes: 1048576
+  reflection_enabled: ${GRPC_REFLECTION_ENABLED:-true}
+
 # Swagger UI and the OpenAPI document are exposed under /docs only when
 # explicitly enabled. Keep this disabled by default outside local development.
 swagger:
@@ -70,9 +86,9 @@ worker:
       - "Content-Type"
       - "X-Request-Id"
 
-# Bearer tokens only authenticate API access and are not associated with a
-# source_system. Empty tokens are ignored. If no non-empty token is configured,
-# the server generates one at startup and prints it in the log.
+# Bearer tokens authenticate REST, MCP and gRPC access and are not associated
+# with a source_system. Empty tokens are ignored. If no non-empty token is
+# configured, the server generates one at startup and prints it in the log.
 auth:
   tokens:
     - "${AUTH_TOKEN:-dev-system-token}"

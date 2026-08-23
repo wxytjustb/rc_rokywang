@@ -8,5 +8,7 @@ import "notification-delivery/internal/provider"
 // what these adapters declare.
 func Register(reg *provider.Registry) {
 	reg.RegisterAdapter(LarkBot{})
+	reg.RegisterAdapter(NewSMTPEmail())
+	reg.RegisterAdapter(NewWebhook())
 	reg.RegisterAdapter(LoadtestHTTP{})
 }

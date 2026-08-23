@@ -10,8 +10,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"notification-delivery/internal/application/notification"
+	"notification-delivery/internal/authn"
 	"notification-delivery/internal/bootstrap"
-	"notification-delivery/internal/provider"
 )
 
 func TestListProvidersReturnsRuntimeCapabilities(t *testing.T) {
@@ -22,8 +23,8 @@ func TestListProvidersReturnsRuntimeCapabilities(t *testing.T) {
 		t.Fatalf("BuildRegistry() error = %v", err)
 	}
 	router := NewRouter(Deps{
-		Registry:   registry,
-		AuthTokens: []string{"dev-system-token"},
+		Service:      notification.NewService(nil, registry, nil, nil),
+		AuthVerifier: authn.NewVerifier([]string{"dev-system-token"}),
 	})
 
 	request := httptest.NewRequest(http.MethodGet, "/v1/providers", nil)
@@ -67,8 +68,8 @@ func TestCreateMessageReturnsLarkPayloadValidationDetails(t *testing.T) {
 		t.Fatalf("BuildRegistry() error = %v", err)
 	}
 	router := NewRouter(Deps{
-		Registry:   registry,
-		AuthTokens: []string{"dev-system-token"},
+		Service:      notification.NewService(nil, registry, nil, nil),
+		AuthVerifier: authn.NewVerifier([]string{"dev-system-token"}),
 	})
 
 	body := []byte(`{
@@ -89,31 +90,5 @@ func TestCreateMessageReturnsLarkPayloadValidationDetails(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), "payload.msg_type must be one of") {
 		t.Fatalf("validation response does not identify invalid msg_type: %s", response.Body.String())
-	}
-}
-
-func TestBuildProviderCapabilitiesSortsProvidersAndActions(t *testing.T) {
-	resolved := map[string]provider.ResolvedAction{
-		"z-provider/send": {
-			Context:     provider.ActionContext{ProviderCode: "z-provider", ProviderAction: "send"},
-			Description: "发送",
-		},
-		"a-provider/update": {
-			Context:     provider.ActionContext{ProviderCode: "a-provider", ProviderAction: "update"},
-			Description: "更新",
-		},
-		"a-provider/create": {
-			Context:     provider.ActionContext{ProviderCode: "a-provider", ProviderAction: "create"},
-			Description: "创建",
-		},
-	}
-
-	got := buildProviderCapabilities(resolved)
-	if len(got.Providers) != 2 || got.Providers[0].ProviderCode != "a-provider" || got.Providers[1].ProviderCode != "z-provider" {
-		t.Fatalf("provider order = %+v", got.Providers)
-	}
-	actions := got.Providers[0].Actions
-	if len(actions) != 2 || actions[0].ProviderAction != "create" || actions[1].ProviderAction != "update" {
-		t.Fatalf("action order = %+v", actions)
 	}
 }

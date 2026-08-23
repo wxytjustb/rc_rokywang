@@ -20,7 +20,18 @@ func TestLoadServerMemoryRuntime(t *testing.T) {
 	t.Setenv("SWAGGER_ENABLED", "true")
 	t.Setenv("AUTH_TOKEN", "dev-system-token")
 	t.Setenv("DB_AUTO_CREATE", "true")
+	t.Setenv("GRPC_ADDR", ":9900")
 	path := writeConfigFile(t, `
+mcp:
+  enabled: true
+  path: /mcp
+  max_body_bytes: 2048
+grpc:
+  enabled: true
+  addr: "${GRPC_ADDR:-:8878}"
+  shutdown_timeout: 4s
+  max_receive_message_bytes: 4096
+  reflection_enabled: true
 swagger:
   enabled: ${SWAGGER_ENABLED:-false}
 auth:
@@ -65,6 +76,15 @@ worker:
 	}
 	if !cfg.Database.AutoCreate {
 		t.Fatal("database.auto_create = false, want true from DB_AUTO_CREATE")
+	}
+	if !cfg.MCP.Enabled || cfg.MCP.Path != "/mcp" || cfg.MCP.MaxBodyBytes != 2048 {
+		t.Fatalf("mcp config = %+v", cfg.MCP)
+	}
+	if !cfg.GRPC.Enabled || cfg.GRPC.Addr != ":9900" ||
+		cfg.GRPC.ShutdownTimeout != 4*time.Second ||
+		cfg.GRPC.MaxReceiveMessageBytes != 4096 ||
+		!cfg.GRPC.ReflectionEnabled {
+		t.Fatalf("grpc config = %+v", cfg.GRPC)
 	}
 }
 

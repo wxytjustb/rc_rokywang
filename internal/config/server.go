@@ -11,6 +11,8 @@ import (
 // ServerConfig is the root of server.yaml.
 type ServerConfig struct {
 	HTTP          HTTPConfig          `yaml:"http"`
+	MCP           MCPConfig           `yaml:"mcp"`
+	GRPC          GRPCConfig          `yaml:"grpc"`
 	Swagger       SwaggerConfig       `yaml:"swagger"`
 	Database      DatabaseConfig      `yaml:"database"`
 	MQ            MQConfig            `yaml:"mq"`
@@ -18,6 +20,26 @@ type ServerConfig struct {
 	Auth          AuthConfig          `yaml:"auth"`
 	ProvidersFile string              `yaml:"providers_file"`
 	AutoMigrate   bool                `yaml:"auto_migrate"`
+}
+
+// MCPConfig controls the MCP Streamable HTTP endpoint hosted by the HTTP
+// server. It deliberately shares the HTTP listener so deployments need only
+// one HTTP ingress and one authentication policy.
+type MCPConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	Path         string `yaml:"path"`
+	MaxBodyBytes int64  `yaml:"max_body_bytes"`
+}
+
+// GRPCConfig controls the dedicated HTTP/2 listener used by native gRPC
+// clients. Reflection is useful locally but should normally be disabled on
+// public production listeners.
+type GRPCConfig struct {
+	Enabled                bool          `yaml:"enabled"`
+	Addr                   string        `yaml:"addr"`
+	ShutdownTimeout        time.Duration `yaml:"shutdown_timeout"`
+	MaxReceiveMessageBytes int           `yaml:"max_receive_message_bytes"`
+	ReflectionEnabled      bool          `yaml:"reflection_enabled"`
 }
 
 type SwaggerConfig struct {
@@ -40,8 +62,9 @@ type DatabaseConfig struct {
 	MinConns   int32  `yaml:"min_conns"`
 }
 
-// AuthConfig contains the bearer tokens accepted by the API. Tokens only
-// authenticate API access; they are not associated with a source_system.
+// AuthConfig contains the bearer tokens accepted by every public protocol.
+// Tokens only authenticate service access; they are not associated with a
+// source_system.
 type AuthConfig struct {
 	Tokens []string `yaml:"tokens"`
 }

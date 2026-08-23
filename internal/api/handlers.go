@@ -1,32 +1,16 @@
 package api
 
 import (
-	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 
-	"notification-delivery/internal/domain"
-	"notification-delivery/internal/provider"
-	"notification-delivery/internal/publish"
-	"notification-delivery/internal/store"
+	"notification-delivery/internal/application/notification"
 )
 
-// EventRepo is the subset of *store.EventRepo the API needs, so handlers
-// can be unit tested against a fake.
-type EventRepo interface {
-	Insert(ctx context.Context, ev *domain.Event) error
-	FindBySourceRequest(ctx context.Context, sourceSystem, sourceRequestID string) (*domain.Event, error)
-}
-
 type Handlers struct {
-	repo      EventRepo
-	registry  *provider.Registry
-	publisher *publish.Service
-	logger    *slog.Logger
+	service *notification.Service
 }
 
 // createMessage implements DESIGN.md §4.1.
@@ -52,120 +36,47 @@ func (h *Handlers) createMessage(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, errInvalidRequest)
 		return
 	}
-	resolved, ok := h.registry.Lookup(req.ProviderCode, req.ProviderAction)
-	if !ok {
-		writeError(c, http.StatusUnprocessableEntity, errUnsupportedProviderAction)
-		return
-	}
 
-	if err := resolved.Adapter.Validate(req.ProviderAction, req.Payload); err != nil {
-		var validationErr *provider.ValidationError
-		if errors.As(err, &validationErr) {
-			writePayloadValidationError(c, validationErr.Problems)
-			return
-		}
-		writeError(c, http.StatusUnprocessableEntity, errInvalidPayload)
-		return
-	}
-
-	ctx := c.Request.Context()
-	sourceSystem := req.SourceSystem
-
-	// resolveIdempotency fully writes the HTTP response itself (202
-	// duplicate, 409 conflict, or 503) whenever a prior row exists or the
-	// lookup fails; it only returns false when there is genuinely nothing
-	// to reconcile against yet.
-	if h.resolveIdempotency(c, ctx, sourceSystem, req) {
-		return
-	}
-
-	ev := &domain.Event{
-		ID:              uuid.New(),
-		SourceSystem:    sourceSystem,
+	result, err := h.service.Submit(c.Request.Context(), notification.SubmitCommand{
+		SourceSystem:    req.SourceSystem,
 		SourceRequestID: req.SourceRequestID,
 		ProviderCode:    req.ProviderCode,
 		ProviderAction:  req.ProviderAction,
 		Payload:         req.Payload,
-	}
-	if err := h.repo.Insert(ctx, ev); err != nil {
-		if errors.Is(err, store.ErrDuplicateSourceRequest) {
-			// Lost the race against a concurrent identical submission;
-			// resolve it exactly like a pre-existing row.
-			if h.resolveIdempotency(c, ctx, sourceSystem, req) {
-				return
-			}
-		}
-		h.logger.Error("insert notification_event failed", "error", err)
-		writeError(c, http.StatusServiceUnavailable, errStorageUnavailable)
+	})
+	if err != nil {
+		h.writeSubmitError(c, err)
 		return
-	}
-	if h.logger != nil {
-		h.logger.Debug("notification event persisted",
-			"event_id", ev.ID,
-			"source_system", ev.SourceSystem,
-			"source_request_id", ev.SourceRequestID,
-			"provider_code", ev.ProviderCode,
-			"provider_action", ev.ProviderAction)
-	}
-
-	// Best-effort direct publish. Failure here is not fatal: the
-	// compensator picks up rows with enqueued_at IS NULL (DESIGN.md §8).
-	if err := h.publisher.PublishAndMark(ctx, ev.ID); err != nil {
-		h.logger.Warn("direct publish failed, relying on compensator", "event_id", ev.ID, "error", err)
-	} else if h.logger != nil {
-		h.logger.Debug("direct publish completed", "event_id", ev.ID)
 	}
 
 	writeSuccess(c, http.StatusAccepted, createMessageResponse{
-		EventID:         ev.ID.String(),
-		SourceSystem:    ev.SourceSystem,
-		SourceRequestID: ev.SourceRequestID,
-		Status:          string(domain.StatusPending),
-		Duplicate:       false,
-		AcceptedAt:      ev.CreatedAt,
+		EventID:         result.EventID,
+		SourceSystem:    result.SourceSystem,
+		SourceRequestID: result.SourceRequestID,
+		Status:          result.Status,
+		Duplicate:       result.Duplicate,
+		AcceptedAt:      result.AcceptedAt,
 	})
 }
 
-// resolveIdempotency checks for a pre-existing row under (sourceSystem,
-// source_request_id). It returns true if it already wrote the complete
-// HTTP response — a 202 duplicate, a 409 status=1006, or a 503
-// on lookup failure — in which case the caller must not do anything else.
-// It returns false only when no row exists yet, meaning the caller should
-// proceed to insert one.
-func (h *Handlers) resolveIdempotency(c *gin.Context, ctx context.Context, sourceSystem string, req createMessageRequest) bool {
-	existing, err := h.repo.FindBySourceRequest(ctx, sourceSystem, req.SourceRequestID)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return false
-		}
-		h.logger.Error("idempotency lookup failed", "error", err)
-		writeError(c, http.StatusServiceUnavailable, errStorageUnavailable)
-		return true
-	}
-
-	sameTarget := existing.ProviderCode == req.ProviderCode && existing.ProviderAction == req.ProviderAction
-	samePayload := canonicalEqual(existing.Payload, req.Payload)
-	if !sameTarget || !samePayload {
+func (h *Handlers) writeSubmitError(c *gin.Context, err error) {
+	var validationErr *notification.PayloadValidationError
+	switch {
+	case errors.Is(err, notification.ErrInvalidRequest):
+		writeError(c, http.StatusBadRequest, errInvalidRequest)
+	case errors.Is(err, notification.ErrUnsupportedProviderAction):
+		writeError(c, http.StatusUnprocessableEntity, errUnsupportedProviderAction)
+	case errors.As(err, &validationErr):
+		writePayloadValidationError(c, validationErr.Problems)
+	case errors.Is(err, notification.ErrInvalidPayload):
+		writeError(c, http.StatusUnprocessableEntity, errInvalidPayload)
+	case errors.Is(err, notification.ErrSourceRequestConflict):
 		writeError(c, http.StatusConflict, errSourceRequestConflict)
-		return true
+	case errors.Is(err, notification.ErrStorageUnavailable):
+		writeError(c, http.StatusServiceUnavailable, errStorageUnavailable)
+	default:
+		writeError(c, http.StatusInternalServerError, errInternal)
 	}
-
-	writeSuccess(c, http.StatusAccepted, createMessageResponse{
-		EventID:         existing.ID.String(),
-		SourceSystem:    existing.SourceSystem,
-		SourceRequestID: existing.SourceRequestID,
-		Status:          string(existing.Status),
-		Duplicate:       true,
-		AcceptedAt:      existing.CreatedAt,
-	})
-	if h.logger != nil {
-		h.logger.Debug("idempotent duplicate returned without republish",
-			"event_id", existing.ID,
-			"source_system", existing.SourceSystem,
-			"source_request_id", existing.SourceRequestID,
-			"status", existing.Status)
-	}
-	return true
 }
 
 // getMessage implements DESIGN.md §4.2.
@@ -185,34 +96,35 @@ func (h *Handlers) resolveIdempotency(c *gin.Context, ctx context.Context, sourc
 // @Failure 503 {object} errorResponse
 // @Router /v1/messages/{source_request_id} [get]
 func (h *Handlers) getMessage(c *gin.Context) {
-	sourceRequestID := c.Param("source_request_id")
-	sourceSystem := c.Query("source_system")
-	if sourceSystem == "" {
-		writeError(c, http.StatusBadRequest, errInvalidRequest)
-		return
-	}
-	ev, err := h.repo.FindBySourceRequest(c.Request.Context(), sourceSystem, sourceRequestID)
+	event, err := h.service.GetStatus(c.Request.Context(), notification.StatusQuery{
+		SourceSystem:    c.Query("source_system"),
+		SourceRequestID: c.Param("source_request_id"),
+	})
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		switch {
+		case errors.Is(err, notification.ErrInvalidRequest):
+			writeError(c, http.StatusBadRequest, errInvalidRequest)
+		case errors.Is(err, notification.ErrNotFound):
 			writeError(c, http.StatusNotFound, errMessageNotFound)
-			return
+		case errors.Is(err, notification.ErrStorageUnavailable):
+			writeError(c, http.StatusServiceUnavailable, errStorageUnavailable)
+		default:
+			writeError(c, http.StatusInternalServerError, errInternal)
 		}
-		h.logger.Error("get message failed", "error", err)
-		writeError(c, http.StatusServiceUnavailable, errStorageUnavailable)
 		return
 	}
 
 	writeSuccess(c, http.StatusOK, messageStatusResponse{
-		EventID:          ev.ID.String(),
-		SourceSystem:     ev.SourceSystem,
-		SourceRequestID:  ev.SourceRequestID,
-		ProviderCode:     ev.ProviderCode,
-		ProviderAction:   ev.ProviderAction,
-		Status:           string(ev.Status),
-		AttemptCount:     ev.AttemptCount,
-		LastResult:       ev.LastResult,
-		ProviderResponse: ev.ProviderResponse,
-		CreatedAt:        ev.CreatedAt,
-		UpdatedAt:        ev.UpdatedAt,
+		EventID:          event.ID.String(),
+		SourceSystem:     event.SourceSystem,
+		SourceRequestID:  event.SourceRequestID,
+		ProviderCode:     event.ProviderCode,
+		ProviderAction:   event.ProviderAction,
+		Status:           string(event.Status),
+		AttemptCount:     event.AttemptCount,
+		LastResult:       event.LastResult,
+		ProviderResponse: event.ProviderResponse,
+		CreatedAt:        event.CreatedAt,
+		UpdatedAt:        event.UpdatedAt,
 	})
 }

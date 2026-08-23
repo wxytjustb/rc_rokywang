@@ -12,9 +12,12 @@
 # Ordinary retry limits and timing are configured on the selected MQ. An
 # adapter may additionally expose an optional, vendor-specific circuit_breaker
 # block; its availability signal affects only that breaker, not retry policy.
+# Built-in smtp-email/send and webhook/deliver examples live in
+# config/providers.p0.example.yaml. They are not enabled here because both
+# require deployment-specific destinations and credentials.
 
 providers:
-  # Lark (飞书) custom bot webhook. webhook_url is the bot's complete,
+  # Lark custom bot webhook. webhook_url is the bot's complete,
   # per-bot URL (https://open.larksuite.com/open-apis/bot/v2/hook/<id>).
   # If signature verification is enabled on the bot, set signing_secret_ref;
   # EnvCredentialResolver then reads the referenced secret from the matching
