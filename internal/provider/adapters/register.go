@@ -10,5 +10,6 @@ func Register(reg *provider.Registry) {
 	reg.RegisterAdapter(LarkBot{})
 	reg.RegisterAdapter(NewSMTPEmail())
 	reg.RegisterAdapter(NewWebhook())
+	reg.RegisterAdapter(NewFirebasePush())
 	reg.RegisterAdapter(LoadtestHTTP{})
 }

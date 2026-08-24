@@ -194,9 +194,12 @@ func TestRepositoryP0ProvidersExampleBuilds(t *testing.T) {
 	if _, ok := registry.Lookup(webhookProviderCode, webhookActionDeliver); !ok {
 		t.Fatalf("Lookup(%q, %q) not found", webhookProviderCode, webhookActionDeliver)
 	}
+	if _, ok := registry.Lookup(firebasePushProviderCode, firebasePushActionSend); !ok {
+		t.Fatalf("Lookup(%q, %q) not found", firebasePushProviderCode, firebasePushActionSend)
+	}
 }
 
-func TestRegisterIncludesSMTPEmailAndWebhookAdapters(t *testing.T) {
+func TestRegisterIncludesP0Adapters(t *testing.T) {
 	cfg := &appconfig.ProvidersConfig{Providers: map[string]yaml.Node{
 		smtpEmailProviderCode: configNode(t, `
 password_ref: vault://notification/smtp-password
@@ -221,6 +224,15 @@ actions:
     requests_per_second: 20
     max_concurrency: 10
 `),
+		firebasePushProviderCode: configNode(t, `
+project_id: mobile-app-123
+credentials_ref: vault://notification/firebase-service-account-json
+actions:
+  send:
+    timeout_ms: 10000
+    requests_per_second: 100
+    max_concurrency: 20
+`),
 	}}
 	registry := provider.NewRegistry(cfg, testCredentialResolver{}, nil, nil)
 	Register(registry)
@@ -232,6 +244,9 @@ actions:
 	}
 	if _, ok := registry.Lookup(webhookProviderCode, webhookActionDeliver); !ok {
 		t.Fatalf("Lookup(%q, %q) not found", webhookProviderCode, webhookActionDeliver)
+	}
+	if _, ok := registry.Lookup(firebasePushProviderCode, firebasePushActionSend); !ok {
+		t.Fatalf("Lookup(%q, %q) not found", firebasePushProviderCode, firebasePushActionSend)
 	}
 }
 

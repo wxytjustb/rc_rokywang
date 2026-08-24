@@ -41,3 +41,18 @@ providers:
         circuit_breaker:
           failure_threshold: 5
           open_duration: 30s
+
+  firebase-push:
+    project_id: "${FIREBASE_PROJECT_ID:-replace-with-your-firebase-project-id}"
+    # EnvCredentialResolver maps this reference to:
+    # NOTIF_CRED_NOTIFICATION_FIREBASE_SERVICE_ACCOUNT_JSON
+    # Remove credentials_ref to use Google Application Default Credentials.
+    credentials_ref: "vault://notification/firebase-service-account-json"
+    actions:
+      send:
+        timeout_ms: 10000
+        requests_per_second: 100
+        max_concurrency: 20
+        circuit_breaker:
+          failure_threshold: 5
+          open_duration: 30s

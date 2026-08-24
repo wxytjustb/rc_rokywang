@@ -13,7 +13,7 @@
 
 项目坚持“单消息、单供应商、单动作”的边界：它专注于稳定投递、幂等受理和结果查询，不提供广播、通用工作流或动态脚本执行能力。
 
-> 当前状态：项目处于早期开发阶段，API、配置格式和数据库结构仍可能变化。当前内置 `lark-bot/send`、`smtp-email/send` 和 `webhook/deliver`；默认 `providers.yaml` 只启用飞书，另外两个适配器需要配置部署方自己的目标和凭据。
+> 当前状态：项目处于早期开发阶段，API、配置格式和数据库结构仍可能变化。当前内置 `lark-bot/send`、`smtp-email/send`、`webhook/deliver` 和 `firebase-push/send`；默认 `providers.yaml` 只启用飞书，另外三个适配器需要配置部署方自己的目标、项目或凭据。
 
 ## 特性
 
@@ -207,6 +207,45 @@ Bearer Token 只用于验证 REST、MCP 和 gRPC 的服务访问权限，不绑�
 
 目标 URL 不能由 Payload 覆盖，生产地址必须使用 HTTPS，HTTP 只允许 Loopback 测试端点；URL 不允许内嵌凭据、Query 或 Fragment，响应重定向也不会被跟随。认证支持 `none`、`bearer` 和 `hmac_sha256`。所有请求携带由 `provider_code + source_system + source_request_id` 派生的稳定 `Idempotency-Key`；HMAC 模式另外携带 `X-Webhook-Timestamp` 和 `X-Webhook-Signature: sha256=<hex>`，签名内容为 `timestamp + "." + 原始请求体`。只有 HTTP `2xx` 是明确成功。
 
+### Firebase 手机推送
+
+`firebase-push/send` 使用官方 Firebase Admin Go SDK，向一个 Firebase Installation ID（FID，推荐）或兼容期内的 Registration Token 发送跨平台消息。Android 由 FCM 直接投递，iOS 由 FCM 转发到 Firebase 项目配置的 APNs：
+
+```json
+{
+  "source_system": "order-service",
+  "source_request_id": "order-123-mobile-push",
+  "provider_code": "firebase-push",
+  "provider_action": "send",
+  "payload": {
+    "fid": "firebase-installation-id",
+    "notification": {
+      "title": "订单已完成",
+      "body": "订单 123 已处理完成",
+      "image_url": "https://cdn.example.com/orders/123.png"
+    },
+    "data": {
+      "order_id": "123",
+      "screen": "order_detail"
+    },
+    "android": {
+      "priority": "high",
+      "channel_id": "orders",
+      "sound": "default"
+    },
+    "ios": {
+      "sound": "default",
+      "badge": 1,
+      "content_available": true
+    }
+  }
+}
+```
+
+每个 Payload 必须且只能设置一个 `fid` 或 `token`，不支持 Topic、Condition 或 Multicast，以保持“一条事件、一个外部目标、一个终态”。`notification` 与字符串键值的 `data` 至少提供一个；图片只接受 HTTPS。iOS 图片会自动设置 APNs 的 `mutable-content`，但 App 仍需实现 Notification Service Extension；Android 的 `channel_id` 也必须由 App 预先创建。
+
+Provider 配置需要 Firebase `project_id`。生产环境优先使用 Google Application Default Credentials；也可以配置 `credentials_ref`，由 Credential Resolver 注入完整的 `service_account` JSON。iOS 还必须在 Firebase Console 上传 APNs Authentication Key。FCM 返回非空 message ID 才算成功；这只表示 FCM 已接受请求，不表示手机已收到、展示或用户已阅读。失效目标会记录为 `FCM_TARGET_UNREGISTERED`，上游应删除对应 FID/Token；在当前统一策略下，该结果仍会重试到 Worker 的 `max_attempts`。
+
 主要接口：
 
 | 方法 | 路径 | 说明 | 认证 |
@@ -359,7 +398,7 @@ Swagger UI 会自动为 `BearerAuth` 填入实际生效的第一个 Token，并�
 | `config/server.yaml` | REST/MCP/gRPC、数据库、MQ、认证和内嵌 Worker 配置 |
 | `config/worker.yaml` | 独立 Worker、数据库、MQ 和补偿扫描器配置 |
 | `config/providers.yaml` | 供应商及动作的适配器专属配置 |
-| `config/providers.p0.example.yaml` | SMTP 邮件和固定端点 Webhook 的完整配置示例 |
+| `config/providers.p0.example.yaml` | SMTP 邮件、固定端点 Webhook 和 Firebase 手机推送的完整配置示例 |
 
 配置加载器支持 `${NAME}` 和 `${NAME:-default}` 两种环境变量表达式。常用变量包括：
 
@@ -383,6 +422,8 @@ Swagger UI 会自动为 `BearerAuth` 填入实际生效的第一个 Token，并�
 | `AUTH_TOKEN` | 空 | REST、MCP、gRPC 共用的 Bearer Token；为空时启动自动生成并记录到日志 |
 | `LARK_BOT_WEBHOOK_URL` | 无，必填 | 飞书自定义机器人完整 Webhook |
 | `LARK_BOT_SIGNING_SECRET_REF` | 空 | 可选的飞书签名密钥引用；机器人启用签名校验时配置 |
+| `FIREBASE_PROJECT_ID` | 示例占位值 | Firebase 项目 ID；启用 `firebase-push/send` 时必须替换 |
+| `NOTIF_CRED_NOTIFICATION_FIREBASE_SERVICE_ACCOUNT_JSON` | 空 | 示例 `credentials_ref` 对应的完整 Service Account JSON；使用 ADC 时不需要 |
 
 `auth.tokens` 是字符串列表，可同时配置多个有效 Token；空字符串和重复值会被忽略。生产环境应通过密钥管理系统或挂载的受控配置注入数据库凭据、Broker 凭据、内部调用 Token 和供应商 Webhook，避免依赖每次启动时生成的新 Token。
 
@@ -392,7 +433,7 @@ Swagger UI 会自动为 `BearerAuth` 填入实际生效的第一个 Token，并�
 
 `lark-bot/send` 示例启用了进程内 Action 级熔断：连续 5 次可用性失败后开放 30 秒，到期只允许一个半开探测。传输错误、HTTP `408/429/5xx`、飞书 `code=11232` 和不符合协议的 HTTP 200 响应计入熔断；普通 `4xx`、其他飞书业务错误及 Adapter 内部错误不计入。熔断拒绝发生在限流器和 `REQUESTING` 之前，不调用供应商，并原子回退领取时增加的 `attempt_count`。Memory、RabbitMQ 按熔断剩余时间精确延期；NSQ 使用不触发 Consumer 全局退避的延期 requeue。进程重启后熔断状态恢复为 `CLOSED`，多个副本各自维护状态。
 
-启用两个 P0 适配器前，复制 [config/providers.p0.example.yaml](config/providers.p0.example.yaml) 中需要的 Provider 到实际配置，并注入相应凭据。例如示例引用会解析为 `NOTIF_CRED_NOTIFICATION_SMTP_EMAIL_PASSWORD` 和 `NOTIF_CRED_NOTIFICATION_WEBHOOK_SECRET`。不要把真实 SMTP 密码、Bearer Token 或 HMAC Secret 写入 YAML。
+启用 P0 适配器前，复制 [config/providers.p0.example.yaml](config/providers.p0.example.yaml) 中需要的 Provider 到实际配置，并注入相应凭据。例如示例引用会解析为 `NOTIF_CRED_NOTIFICATION_SMTP_EMAIL_PASSWORD`、`NOTIF_CRED_NOTIFICATION_WEBHOOK_SECRET` 和 `NOTIF_CRED_NOTIFICATION_FIREBASE_SERVICE_ACCOUNT_JSON`。不要把真实 SMTP 密码、Bearer Token、HMAC Secret 或 Service Account JSON 写入 YAML。
 
 这一策略提供更多自动恢复机会，但外部接口不支持幂等时存在重复发送风险：例如飞书已经收到消息、Worker 却在读取响应时超时，下一次 requeue 会再次发送。
 
@@ -469,8 +510,8 @@ internal/worker/        消费、限流、租约和补偿扫描
 ## 当前限制
 
 - 每条消息只能投递给一个供应商并执行一个动作。
-- 当前内置 `lark-bot/send`、`smtp-email/send` 和 `webhook/deliver`；配置文件中出现的 Provider 才会实际启用。
-- SMTP 成功只表示服务器接受邮件，Webhook 成功只表示固定端点返回 `2xx`；当前没有邮件送达、退信或下游业务最终完成的异步回执状态。
+- 当前内置 `lark-bot/send`、`smtp-email/send`、`webhook/deliver` 和 `firebase-push/send`；配置文件中出现的 Provider 才会实际启用。
+- SMTP 成功只表示服务器接受邮件，Webhook 成功只表示固定端点返回 `2xx`，Firebase Push 成功只表示 FCM 返回 message ID；当前没有邮件送达、退信、手机展示/阅读或下游业务最终完成的异步回执状态。
 - 除明确成功外的所有供应商发送结果都返回 MQ requeue；达到真实供应商调用 `max_attempts` 后写入 `FAILED`，没有独立 DLQ。
 - 熔断器按 `provider_code/provider_action` 在进程内维护，不跨副本共享或持久化；熔断延期不消耗真实供应商尝试次数。
 - 只保存最近一次投递结果，不保存完整尝试历史。
