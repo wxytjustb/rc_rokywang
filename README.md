@@ -1,5 +1,10 @@
 <div align="center">
-  <h1>Notification Delivery: Reliable External Notifications</h1>
+  <a href="https://github.com/wxytjustb/gopher-post">
+    <img src="assets/gopherpost-logo.png" alt="GopherPost logo" width="240">
+  </a>
+
+  <h1>GopherPost</h1>
+  <p>Reliable External Notification Delivery</p>
 
   <p>
     <img src="https://img.shields.io/badge/status-early_development-orange" alt="Project status: early development">
